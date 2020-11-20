@@ -4,10 +4,10 @@ import pandas as pd
 import random
 from sklearn import svm
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, classification_report, plot_confusion_matrix
+from sklearn.metrics import classification_report, plot_confusion_matrix
 from sklearn.feature_extraction.text import *
-from sklearn.utils.multiclass import unique_labels
-import json
+from sklearn.naive_bayes import BernoulliNB
+from sklearn.linear_model import LogisticRegression
 
 DATASET_PATH = "noduplicatedataset.json"
 BLINDTEST_PATH = "nodupblindtest.json"
@@ -35,8 +35,6 @@ def load_blindTest():
     data = pd.read_json(BLINDTEST_PATH, lines=True)
     x_all = data.lista_asm
     id_all =data.id
-   # print(id_all)
-   # print(x_all)
     print("********* loading the blindset ********************")
     print("Number of blind samples: %s" % str(x_all.shape[0]))
     # print a random sample
@@ -134,6 +132,12 @@ def create_model(xtrain, ytrain):
     model.fit(xtrain, ytrain)
     return model
 
+def create_model2(xtrain, ytrain):
+    print("********* creating the Bernoulli model ********************")
+    model = BernoulliNB()
+    model.fit(xtrain, ytrain)
+    return model
+
 def evaluation(model, x_test, y_test):
     print("********* Evaluation of the classification ********************")
     # plotting the confusion matrix
@@ -154,21 +158,31 @@ def predictionBlindData(model, vectorizer):
     #    print(y)
 
 if __name__ == '__main__':
-    n_solution = 1
+    n_solution = 3 # change for creating different results
     model = None
+
     x_all, y_all, class_names = load_dataset()
-    if n_solution == 1:     # first solution
+    if n_solution == 1:                    # first solution
+        print("************************** 1° solution *********************************************")
         x_all, vectorizer = vectorization1(x_all)
         x_train, x_test, y_train, y_test = split_data(x_all,y_all)
         model = create_model(x_train,y_train)
         evaluation(model,x_test,y_test)
+
         #predictionBlindData(model, vectorizer)
-    elif(n_solution==2): # second solution
+
+    elif(n_solution==2):                # second solution
+        print("************************** 2° solution *********************************************")
         x_all, vectorizer = vectorization2(x_all)
         x_train, x_test, y_train, y_test = split_data(x_all,y_all)
         model = create_model(x_train,y_train)
         evaluation(model,x_test,y_test)
-    else: #third solution
+    elif (n_solution == 3):             #third solution
+        print("************************** 3° solution *********************************************")
+        x_all, vectorizer = vectorization1(x_all)
+        x_train, x_test, y_train, y_test = split_data(x_all, y_all)
+        model = create_model2(x_train, y_train)
+        evaluation(model, x_test, y_test)
 
 
 
