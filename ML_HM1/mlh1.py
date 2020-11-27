@@ -8,9 +8,12 @@ from sklearn.metrics import classification_report, plot_confusion_matrix
 from sklearn.feature_extraction.text import *
 from sklearn.naive_bayes import BernoulliNB
 from sklearn.linear_model import LogisticRegression
+from datetime import datetime
 
+# No duplicate dataset for learing
 DATASET_PATH = "noduplicatedataset.json"
-BLINDTEST_PATH = "nodupblindtest.json"
+#blindtest dateset with duplicates
+BLINDTEST_PATH = "blindtest.json"
 
 def load_dataset():
     data = pd.read_json(DATASET_PATH, lines=True)
@@ -106,7 +109,11 @@ def vectorization1(x):
 
     # Learn the vocabulary dictionary and return document-term matrix.
     # with shape attribute retrieve dimensions
+    time1 = datetime.now()
     x_all = vectorizer.fit_transform(x)
+    time2 = datetime.now()
+    deltat = (time2 - time1).microseconds * 10 ** -6
+    print("time for vectorization (CountVectorizer): " + str(deltat))
     return x_all, vectorizer
 
 def vectorization2(x):
@@ -115,7 +122,11 @@ def vectorization2(x):
 
     # Learn the vocabulary dictionary and return document-term matrix.
     # with shape attribute retrieve dimensions
+    time1 = datetime.now()
     x_all = vectorizer.fit_transform(x)
+    time2 = datetime.now()
+    deltat = (time2 - time1).microseconds * 10 ** -6
+    print("time for vectorization (HashingVectorizer): " + str(deltat))
     return x_all, vectorizer
 
 def split_data(x,y):
@@ -129,13 +140,21 @@ def split_data(x,y):
 def create_model(xtrain, ytrain):
     print("********* creating the SVM model (linear kernel) ********************")
     model = svm.SVC(kernel='linear', gamma='scale')
+    time1 = datetime.now()
     model.fit(xtrain, ytrain)
+    time2 = datetime.now()
+    deltat = (time2 - time1).microseconds * 10**-6
+    print("time for learning (svm): " + str(deltat))
     return model
 
 def create_model2(xtrain, ytrain):
     print("********* creating the Bernoulli model ********************")
     model = BernoulliNB()
+    time1 = datetime.now()
     model.fit(xtrain, ytrain)
+    time2 = datetime.now()
+    deltat = (time2 - time1).microseconds * 10**-6
+    print("time for learning (Bernoulli): " + str(deltat))
     return model
 
 def evaluation(model, x_test, y_test):
@@ -144,7 +163,11 @@ def evaluation(model, x_test, y_test):
     plot_confusion_matrix(model, x_test, y_test, normalize= "true")
     plt.show()
     # print the classification report
+    time1 = datetime.now()
     y_pred = model.predict(x_test)
+    time2 = datetime.now()
+    deltat = (time2 - time1).microseconds * 10 ** -6
+    print("time for predicting: " + str(deltat))
     print(classification_report(y_test, y_pred))
 
 def predictionBlindData(model, vectorizer):
@@ -153,12 +176,20 @@ def predictionBlindData(model, vectorizer):
     x_blind = vectorizer.transform(x_blind)
     y_blindPredict = model.predict(x_blind)
 
+    #scrittura su file
+    print("******************* writing on file ******************************")
+    with open("1952529.txt", 'w') as file_object:
+        for i,y in enumerate(y_blindPredict):
+            if i+1 != len(y_blindPredict):
+                file_object.write(y + "\n")
+            else:
+                file_object.write(y)
     print("*******************end******************************")
-    #for y in y_blindPredict:
-    #    print(y)
+
+
 
 if __name__ == '__main__':
-    n_solution = 3 # change for creating different results
+    n_solution = 2 # change for creating different results
     model = None
 
     x_all, y_all, class_names = load_dataset()
@@ -169,8 +200,7 @@ if __name__ == '__main__':
         model = create_model(x_train,y_train)
         evaluation(model,x_test,y_test)
 
-        #predictionBlindData(model, vectorizer)
-
+        predictionBlindData(model, vectorizer)
     elif(n_solution==2):                # second solution
         print("************************** 2° solution *********************************************")
         x_all, vectorizer = vectorization2(x_all)
