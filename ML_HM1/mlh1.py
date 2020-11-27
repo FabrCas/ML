@@ -6,7 +6,7 @@ from sklearn import svm
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, plot_confusion_matrix
 from sklearn.feature_extraction.text import *
-from sklearn.naive_bayes import BernoulliNB
+from sklearn.naive_bayes import MultinomialNB
 from sklearn.linear_model import LogisticRegression
 from datetime import datetime
 
@@ -50,7 +50,6 @@ def load_blindTest():
 
 def pre_process_data(x_all):
     print("***************** Pre-processing ********************")
-    print(type(x_all))
     registers = [
         "rax","eax", "ax", "al",
         "rcx" ,"ecx", "cx", "cl",
@@ -79,6 +78,7 @@ def pre_process_data(x_all):
              "jnge", "jle", "jng", "ja", "jnbe", "jae", "jnb", "jnae", "jbe", "jna"]
     floatingPoint = ["xmm", "movs", "cvtss2sd", "cvtsi2s", "cvtts", "adds", "subs",
                      "muls", "divs", "maxs", "mins","sqrts", "ucomis"]
+
     checks= [registers,mathOp,bitwiseOp,shifOp,dataMovementOp,compTestOp,forSt,floatingPoint,externalCall]
     occ_register = 0
     occ_call = 0
@@ -148,13 +148,13 @@ def create_model(xtrain, ytrain):
     return model
 
 def create_model2(xtrain, ytrain):
-    print("********* creating the Bernoulli model ********************")
-    model = BernoulliNB()
+    print("********* creating the Multinomial model ********************")
+    model = MultinomialNB()
     time1 = datetime.now()
     model.fit(xtrain, ytrain)
     time2 = datetime.now()
     deltat = (time2 - time1).microseconds * 10**-6
-    print("time for learning (Bernoulli): " + str(deltat))
+    print("time for learning (Multinomial): " + str(deltat))
     return model
 
 def evaluation(model, x_test, y_test):
@@ -189,7 +189,7 @@ def predictionBlindData(model, vectorizer):
 
 
 if __name__ == '__main__':
-    n_solution = 2 # change for creating different results
+    n_solution = 3 # change for creating different results
     model = None
 
     x_all, y_all, class_names = load_dataset()
