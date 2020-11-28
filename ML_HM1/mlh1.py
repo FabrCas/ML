@@ -7,12 +7,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, plot_confusion_matrix
 from sklearn.feature_extraction.text import *
 from sklearn.naive_bayes import MultinomialNB
-from sklearn.linear_model import LogisticRegression
 from datetime import datetime
 
 # No duplicate dataset for learing
 DATASET_PATH = "noduplicatedataset.json"
-#blindtest dateset with duplicates
+# blindtest dateset with duplicates
 BLINDTEST_PATH = "blindtest.json"
 
 def load_dataset():
@@ -22,15 +21,18 @@ def load_dataset():
     print("********* loading the dataset ********************")
     print("Number of input samples X: %s" % str(x_all.shape[0]))
     print("Number of output classifications Y: : %s" % str(y_all.shape[0]))
+
     # print a random sample
     id = random.randrange(0, x_all.shape[0])
     print("random sampling: ")
     print("x %d = %r" % (id, x_all[id]))
     print("y %d = %r" % (id, y_all[id]))
+    # get the class types
     class_names = np.array([str(c) for c in y_all])
     class_names = pd.DataFrame(class_names).drop_duplicates()
     class_names = np.squeeze(np.asarray(class_names))
     print(class_names)
+    # handling of the data
     x_all = pre_process_data(x_all)
     return x_all, y_all, class_names
 
@@ -44,6 +46,7 @@ def load_blindTest():
     id = random.randrange(0, x_all.shape[0])
     print("random sampling: ")
     print("x %d = %r" % (id, x_all[id]))
+    # handling of the data
     x_all = pre_process_data(x_all)
     return x_all, id_all
 
@@ -105,10 +108,8 @@ def pre_process_data(x_all):
 def vectorization1(x):
     print("********* Vectorization of data ********************")
     vectorizer = CountVectorizer()
-    #vectorizer = HashingVectorizer()
 
     # Learn the vocabulary dictionary and return document-term matrix.
-    # with shape attribute retrieve dimensions
     time1 = datetime.now()
     x_all = vectorizer.fit_transform(x)
     time2 = datetime.now()
@@ -118,15 +119,14 @@ def vectorization1(x):
 
 def vectorization2(x):
     print("********* Vectorization of data ********************")
-    vectorizer = HashingVectorizer(ngram_range=(1,3))
-
+    vectorizer = TfidfVectorizer(ngram_range=(1,3))
     # Learn the vocabulary dictionary and return document-term matrix.
     # with shape attribute retrieve dimensions
     time1 = datetime.now()
     x_all = vectorizer.fit_transform(x)
     time2 = datetime.now()
     deltat = (time2 - time1).microseconds * 10 ** -6
-    print("time for vectorization (HashingVectorizer): " + str(deltat))
+    print("time for vectorization (TfidfVectorizer): " + str(deltat))
     return x_all, vectorizer
 
 def split_data(x,y):
