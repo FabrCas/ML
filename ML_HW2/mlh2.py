@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import os
 import pickle
 import numpy as np
+from keras.models import Model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.models import load_model
 from keras.models import Sequential
@@ -10,15 +11,74 @@ from keras.layers import Dense, Dropout, Flatten,\
                          Conv2D, MaxPooling2D, AveragePooling2D
 from sklearn.metrics import classification_report, confusion_matrix
 from keras import applications
-from keras import callbacks
-
+from keras.layers.normalization import BatchNormalization
 datadir = "Dataset"
 models_dir = "Models"
 results_dir = "Results"
+blind_dir = "Blindtest"
+
+# start utilities *********************************************************
+
+def saveModel(model, problem):
+    filename = os.path.join(models_dir, '%s.h5' % problem)
+    model.save(filename)
+    print("\nModel saved on file %s\n" % filename)
+
+def saveHistory(history, problem ):
+    filename = os.path.join(results_dir, '%s.hist' % problem)
+    with open(filename, 'wb') as f:
+        pickle.dump(history.history, f, pickle.HIGHEST_PROTOCOL)
+    print("\nHystory saved on file %s\n" % filename)
+
+def loadHistory(problem):
+   filename = os.path.join(results_dir, '%s.hist' % problem)
+   with open(filename, 'rb') as f:
+       try:
+           history = pickle.load(f)
+           print("the history " + filename+ " has been loaded!")
+           plot_history(history, "CNN_hw2")
+       except OSError:
+           print("the history " + filename + " is not present!")
+           history = None
+   return history
+
+
+def loadModel(problem):
+    filename = os.path.join(models_dir, '%s.h5' % problem)
+    try:
+        model = load_model(filename)
+        print("the model " + filename+ " has been loaded!")
+        model.summary()
+    except OSError:
+        print("the model " + filename + " is not present!")
+        model = None
+    return model
+
+def plot_history(history,name):
+    print("********************** plotting the history *********************************")
+    # summarize history for accuracy
+    plt.plot(history['accuracy'])
+    plt.plot(history['val_accuracy'])
+    plt.title(name + ' accuracy')
+    plt.ylabel('accuracy')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'test'], loc='upper left')
+    plt.show()
+    # summarize history for loss
+    plt.plot(history['loss'])
+    plt.plot(history['val_loss'])
+    plt.title(name + ' loss')
+    plt.ylabel('loss')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'test'], loc='upper left')
+    plt.show()
+
+# end  utilities *********************************************************
 
 def loadData():
     batch_size = 64
     input_shape = ()
+
     train_datagen = ImageDataGenerator(
         rescale=1. / 255,\
         zoom_range=0.1,\
@@ -72,42 +132,6 @@ def loadData():
 
     return  input_shape, n_classes, class_names, train_generator, validation_generator, train_datagen
 
-def saveModel(model, problem):
-    filename = os.path.join(models_dir, '%s.h5' % problem)
-    model.save(filename)
-    print("\nModel saved on file %s\n" % filename)
-
-def saveHistory(history, problem ):
-    filename = os.path.join(results_dir, '%s.hist' % problem)
-    with open(filename, 'wb') as f:
-        pickle.dump(history.history, f, pickle.HIGHEST_PROTOCOL)
-    print("\nHystory saved on file %s\n" % filename)
-
-def loadHistory(problem):
-   filename = os.path.join(results_dir, '%s.hist' % problem)
-   with open(filename, 'rb') as f:
-       try:
-           history = pickle.load(f)
-           print("the history " + filename+ " has been loaded!")
-           print(history)
-           plot_history(history, "CNN_hw2")
-       except OSError:
-           print("the history " + filename + " is not present!")
-           history = None
-   return history
-
-
-def loadModel(problem):
-    filename = os.path.join(models_dir, '%s.h5' % problem)
-    try:
-        model = load_model(filename)
-        print("the model " + filename+ " has been loaded!")
-        model.summary()
-    except OSError:
-        print("the model " + filename + " is not present!")
-        model = None
-    return model
-
 
 def createCNN(input_shape, n_classes):
     model = Sequential(name="FabrizioNet")
@@ -140,9 +164,22 @@ def createCNN(input_shape, n_classes):
 def createTransferLearningModel(input_shape, n_classes):
     model_tl = applications.ResNet50V2(weights="imagenet", include_top= False, input_shape= input_shape)
     # setting not trainable layers
-    not_trainable = len(model_tl.layers())-1
-    for layer in model_tl.layers()[:not_trainable]:
+    not_trainable = len(model_tl.layers)-1
+    for layer in model_tl.layers[:not_trainable]:
         layer.trainable = False
+
+    # adding last layers
+    x = model_tl.output
+    x = Flatten()(x)
+    x = BatchNormalization()(x)
+    # add the final output layer
+    dense = Dense(n_classes, activation="softmax")(x)
+
+    model = Model(inputs = model_tl.input, outputs = dense, name="transferLearning")
+    optimizer = "adam"
+    model.compile(loss= "categorical_crossentropy", optimizer = optimizer, metrics=['accuracy'])
+    model.summary()
+    return model
 
 
 def train(model, train_generator, validation_generator, type):
@@ -159,9 +196,14 @@ def train(model, train_generator, validation_generator, type):
         except KeyboardInterrupt:
             pass
     else:
-        pass
-        #todo
-        #saveHistory(history, "CNN_hw2_tl")
+        try:
+            history = model.fit(train_generator, epochs=100, \
+                                          steps_per_epoch=steps_per_epoch, \
+                                          validation_data=validation_generator, \
+                                          validation_steps=val_steps)
+            saveHistory(history, "CNN_hw2_tl")
+        except KeyboardInterrupt:
+            pass
 
 def evaluation(model, validation_generator, class_names):
     # accuracy/loss
@@ -181,11 +223,9 @@ def evaluation(model, validation_generator, class_names):
         for j in range(0, cm.shape[1]):
             if (i != j and cm[i][j] > 0):
                 conf.append([i, j, cm[i][j]])
-
     col = 2
     conf = np.array(conf)
     conf = conf[np.argsort(-conf[:, col])]  # decreasing order by 3-rd column (i.e., cm[i][j])
-
     print('%-16s     %-16s  \t%s \t%s ' % ('True', 'Predicted', 'errors', 'err %'))
     print('------------------------------------------------------------------')
     for k in conf:
@@ -193,34 +233,18 @@ def evaluation(model, validation_generator, class_names):
         class_names[k[0]], class_names[k[1]], k[2], k[2] * 100.0 / validation_generator.n))
 
 
-def plot_history(history,name):
-    print("********************** plotting the history *********************************")
-    # summarize history for accuracy
-    plt.plot(history['accuracy'])
-    plt.plot(history['val_accuracy'])
-    plt.title(name + ' accuracy')
-    plt.ylabel('accuracy')
-    plt.xlabel('epoch')
-    plt.legend(['train', 'test'], loc='upper left')
-    plt.show()
-    # summarize history for loss
-    plt.plot(history['loss'])
-    plt.plot(history['val_loss'])
-    plt.title(name + ' loss')
-    plt.ylabel('loss')
-    plt.xlabel('epoch')
-    plt.legend(['train', 'test'], loc='upper left')
-    plt.show()
-
 def blindtest(model, train_datagen):
+    print("********************+ blindtest *****************************************")
+
     batch_size = 64
     blind_test_generator = train_datagen.flow_from_directory(
-        directory=blindtest,  # same directory as training data
+        directory = blind_dir,  # same directory as training data
         target_size=(118, 224),
         batch_size=batch_size,
-        shuffle=False,
+        shuffle= True,
         class_mode=None)
-    predictions = model.predict_generator(blind_test_generator)
+
+    predictions = model.predict(blind_test_generator)
 
     y_predicted = np.argmax(predictions, axis=1)
     print(y_predicted)
@@ -229,23 +253,27 @@ def blindtest(model, train_datagen):
 if __name__ == "__main__":
     print("Tensorflow version %s" %tf.__version__)
     i_shape, n_classes, class_names, train_generator, validation_generator, train_datagen = loadData()
-    type = "CnnScratch"  # CnnScratch or TransferLearning
+    type = "TransferLearning"  # CnnScratch or TransferLearning
     if type == "CnnScratch":
         model = loadModel("CNN_hw2")
         if model == None:
             model = createCNN(i_shape, n_classes)
             train(model, train_generator, validation_generator, type)
             saveModel(model, "CNN_hw2")
-    else:
+        history = loadHistory("CNN_hw2")
+    elif type == "TransferLearning" :
         model = loadModel("CNN_hw2_tl")
         if model == None:
             model = createTransferLearningModel(i_shape,n_classes )
             train(model, train_generator, validation_generator, type)
             saveModel(model, "CNN_hw2_tl")
+        history = loadHistory("CNN_hw2_tl")
 
-
-    #evaluation(model, validation_generator, class_names)
-    history = loadHistory("CNN_hw2")
+    train_acc_max = history['accuracy'][-1]
+    train_loss_min = history['loss'][-1]
+    print("train accuracy "+ str(train_acc_max ))
+    print("train loss " + str(train_loss_min))
+    evaluation(model, validation_generator, class_names)
     #blindtest(model, train_datagen)
 
 
