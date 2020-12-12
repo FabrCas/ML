@@ -15,7 +15,7 @@ from keras.layers.normalization import BatchNormalization
 datadir = "Dataset"
 models_dir = "Models"
 results_dir = "Results"
-blind_dir = "Blindtest"
+test_dir = "Test"
 
 # start utilities *********************************************************
 
@@ -176,9 +176,10 @@ def createTransferLearningModel(input_shape, n_classes):
     dense = Dense(n_classes, activation="softmax")(x)
 
     model = Model(inputs = model_tl.input, outputs = dense, name="transferLearning")
-    optimizer = "adam"
+    optimizer = "SGD"
     model.compile(loss= "categorical_crossentropy", optimizer = optimizer, metrics=['accuracy'])
     model.summary()
+
     return model
 
 
@@ -197,7 +198,7 @@ def train(model, train_generator, validation_generator, type):
             pass
     else:
         try:
-            history = model.fit(train_generator, epochs=100, \
+            history = model.fit(train_generator, epochs=10, \
                                           steps_per_epoch=steps_per_epoch, \
                                           validation_data=validation_generator, \
                                           validation_steps=val_steps)
@@ -233,21 +234,33 @@ def evaluation(model, validation_generator, class_names):
         class_names[k[0]], class_names[k[1]], k[2], k[2] * 100.0 / validation_generator.n))
 
 
-def blindtest(model, train_datagen):
-    print("********************+ blindtest *****************************************")
-
+def testModel(model, train_datagen, class_names):
+    print("********************+ testModel *****************************************")
+    true_values = []
+    with open("results_test.txt") as file_object:
+        for line in file_object:
+            line = line.replace("\n","")
+            line = class_names.index(line)
+            true_values.append(line)
+        true_values.sort()
     batch_size = 64
-    blind_test_generator = train_datagen.flow_from_directory(
-        directory = blind_dir,  # same directory as training data
+    test_generator = train_datagen.flow_from_directory(
+        directory = test_dir,  # same directory as training data
         target_size=(118, 224),
         batch_size=batch_size,
-        shuffle= True,
+        shuffle= False,
         class_mode=None)
 
-    predictions = model.predict(blind_test_generator)
+    predictions = model.predict(test_generator)
 
     y_predicted = np.argmax(predictions, axis=1)
+    print(class_names)
+    print(true_values)
+    y_predicted = y_predicted.tolist()
     print(y_predicted)
+    print(classification_report(y_predicted, true_values, labels=None, target_names=class_names, digits=3))
+
+
 
 
 if __name__ == "__main__":
@@ -269,13 +282,13 @@ if __name__ == "__main__":
             saveModel(model, "CNN_hw2_tl")
         history = loadHistory("CNN_hw2_tl")
 
+    print("*********************************************************" + str(len(model.layers)))
     train_acc_max = history['accuracy'][-1]
     train_loss_min = history['loss'][-1]
     print("train accuracy "+ str(train_acc_max ))
     print("train loss " + str(train_loss_min))
     evaluation(model, validation_generator, class_names)
-    #blindtest(model, train_datagen)
-
+    testModel(model, train_datagen, class_names)
 
 
 
