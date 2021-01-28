@@ -38,15 +38,15 @@ def main_loop():
   exe_info = {}
 
   # init configuation variables
-  n_episode = 50#300
-  max_steps = 50#200
-  max_start_step= 1000   # after this, start using the agent's policy
-  learnStartStep = 500 # after this, start the learning update process
-  stepInBatch = 32
+  n_episode = 80#300
+  max_steps = 300#200
+  max_start_step= 6000  # after this, start using the agent's policy
+  learnStartStep = 100 #500 # after this, start the learning update process
+  stepInBatch = 32  # every how much steps doing the update of params
   batch_size = 32
   HER_StartEpisode = 1 # after this, start using HER whether enabled
   HER_GoalsStep_n = 10 # after this number of steps, sample a goal
-  HER_enabled = False
+  HER_enabled = True
   render_on = True
   random_action = False
   # end configuation variables
@@ -55,7 +55,7 @@ def main_loop():
     obs = np.reshape(s['observation'], (1, 10))
     ach = np.reshape(s['achieved_goal'], (1, 3))
     des = np.reshape(s['desired_goal'], (1, 3))
-    state = np.concatenate([obs, des], axis=1)
+    state = np.concatenate([ach, des], axis=1)
     return list(state.squeeze())
 
   def reShapeHer(s, goal=[]):
@@ -66,7 +66,7 @@ def main_loop():
 
     obs = np.reshape(s['observation'], (1, 10))
     ach = np.reshape(s['achieved_goal'], (1, 3))
-    state = np.concatenate([obs, goal], axis=1)
+    state = np.concatenate([ach, goal], axis=1)
 
     return list(state.squeeze())
 
@@ -79,13 +79,13 @@ def main_loop():
   print("observation space :" + str(env.observation_space))
   env._max_episode_steps = max_steps
 
-  num_inputs = env.observation_space['observation'].shape[0] + env.observation_space['desired_goal'].shape[0]  # interesting observations are the Cartesian coordinates of the gripper
+  num_inputs = env.observation_space['achieved_goal'].shape[0] + env.observation_space['desired_goal'].shape[0]  # interesting observations are the Cartesian coordinates of the gripper
   num_action = env.action_space.shape[0]  # env.action_space.shape[0] -> : 3 dimensions specify the desired gripper movement in Cartesian coordinates and
   # the last dimension controls opening and closing of the gripper (1 action can be avoided for this task (the gripper one)
   # sets an initial state
   env.reset()
   # setting the agent
-  agent = SoftActorCriticAgent(env = env, input_dims = (13,), n_actions= num_action)
+  agent = SoftActorCriticAgent(env = env, input_dims = (6,), n_actions= num_action)
 
   # ***************************************************** evaluations initiliazation **********************************
   # score evaluation (can do the same for the number of steps: https://medium.com/@thechrisyoon/deriving-policy-gradients-and-implementing-reinforce-f887949bd63
@@ -130,7 +130,7 @@ def main_loop():
         print("*************")
 
       # save in buffer
-      if not random_action:
+      if True: #not random_action:
         agent.save(reShape(state), action, reward, reShape(new_state), done)
 
         if not((steps+1) + HER_GoalsStep_n > max_steps):
@@ -209,10 +209,10 @@ def main_loop():
         Done = (substitute_reward == 0.0)
 
         if False:
-          print("dfdsf")
+          print("***** start transition info HER ******")
           print(transition[0])
           print(goal)
-          print("dfdsf")
+          print("***** end transition info HER ******")
           print(Done)
           print((reShapeHer(transition[0],goal), transition[1], substitute_reward, reShapeHer(transition[3],goal),Done))
           print(substitute_reward)

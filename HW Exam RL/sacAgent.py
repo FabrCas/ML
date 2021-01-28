@@ -7,11 +7,11 @@ from copy import deepcopy
 import torch.nn.functional as F
 
 class SoftActorCriticAgent():
-    def __init__(self, alpha = 0.0003, beta = 0.0003, input_dims = None, env = None, gamma= 0.99, n_actions = None,
+    def __init__(self, alpha = 0.2, input_dims = None, env = None, gamma= 0.99, n_actions = None,
                  max_size= 100000, tau = 0.005, layer_size = 256, layer2_size=256, batch_size= 32, reward_scale= 2, polyak=0.995):
         self.gamma= gamma
         self.tau = tau
-        self.alpha = alpha
+        self.alpha = alpha   # Definition of the temperature parameter
         self.memory = ReplayBuffer(max_size, input_dims, n_actions)
         self.batch_size =  batch_size
         self.n_actions = n_actions
@@ -21,11 +21,11 @@ class SoftActorCriticAgent():
         """ 2 critics, minimum od the evalution of this state for these 2 networks in the calculation of the loss function
          by the critic part"""
 
-        self.actor = ActorNetwork(alpha, input_dims, n_actions=n_actions,
+        self.actor = ActorNetwork(input_dims, n_actions=n_actions,
                     name='actor', max_action=env.action_space.high)
-        self.critic_1 = CriticNetwork(beta, input_dims, n_actions=n_actions,
+        self.critic_1 = CriticNetwork(input_dims, n_actions=n_actions,
                     name='critic_1')
-        self.critic_2 = CriticNetwork(beta, input_dims, n_actions=n_actions,
+        self.critic_2 = CriticNetwork(input_dims, n_actions=n_actions,
                     name='critic_2')
 
         # 2 ways of acting for estimating the value function:
@@ -173,13 +173,13 @@ class SoftActorCriticAgent():
             q2_target = self.targetQ2.forward(new_State, action2)
             # we take the minimum between these 2 q target values
             q_target = T.min(q1_target,q2_target)
+            # with (q_target - self.alpha * log_prob) = V(st)
             target = reward + self.gamma * (1 - done) * (q_target - self.alpha * log_prob)
 
         #evaluation of the mean square error loss
         lq1 = ((q1 - target)**2).mean()
         lq2 = ((q2 - target)**2).mean()
         loss = lq1 + lq2
-
         return loss
 
     # compution for the loss of the policy
@@ -194,12 +194,16 @@ class SoftActorCriticAgent():
 
         # evaluating the loss of the policy
         lossPi= (self.alpha * log_prob - q_pi).mean() #formula 6, alpha has been omitted
+
         return lossPi
 
     def choose_action(self, state):
+        state = T.Tensor([state])
         with T.no_grad():
-            actions, _ = self.actor.sample_normal(T.as_tensor(state, dtype=T.float32), reparameterize=True)
-            return  actions.numpy()#actions.cpu().detach().numpy()[0]
+            actions, _ = self.actor.sample_normal(state)#T.as_tensor(state, dtype=T.float32))
+            actions = actions.squeeze()
+            print(actions)
+            return  actions.numpy()  #transform from tensor to array and return               #actions.cpu().detach().numpy()[0]
 
     def save(self, state, action, reward, new_state, done):
         self.memory.store_transition(state, action, reward, new_state, done)
@@ -209,6 +213,13 @@ class SoftActorCriticAgent():
 
     def learn(self,data): # states, actions, rewards, new_States, dones):
         # learn part for critic
+
+        # gradient descent for pi
+        self.actor.zero_grad()
+        loss = self.loss_evaluation_PI(data)  # states)
+        loss.backward()
+        self.actor.stepg()
+
 
         # initialize Q optimizers for having zero gradient
         self.critic_1.zero_grad()
@@ -222,18 +233,12 @@ class SoftActorCriticAgent():
 
         # now the same for the policy
         # we have to block the gradient for Q parameters
-        self.critic_1.freezeParameters()
-        self.critic_2.freezeParameters()
-
-        # gradient descent for pi
-        self.actor.zero_grad()
-        loss = self.loss_evaluation_PI(data)#states)
-        loss.backward()
-        self.actor.stepg()
+        # self.critic_1.freezeParameters()
+        # self.critic_2.freezeParameters()
 
         # re-active gradient parameters
-        self.critic_1.unfreezeParameters()
-        self.critic_2.unfreezeParameters()
+        # self.critic_1.unfreezeParameters()
+        # self.critic_2.unfreezeParameters()
 
         # update target networks off the gradient
         with T.no_grad():
