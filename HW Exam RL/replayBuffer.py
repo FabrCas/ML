@@ -34,4 +34,8 @@ class ReplayBuffer():
         rewards = self.reward_memory[batch],
         dones = self.terminal_memory[batch])
 
-        return {k: torch.as_tensor(v, dtype=torch.float32) for k, v in batch_tmp.items()} # states, actions, rewards, states_, dones
+        # sac 3
+        return batch_tmp
+
+        # sac 1
+       # return {k: torch.as_tensor(v, dtype=torch.float32) for k, v in batch_tmp.items()} # states, actions, rewards, states_, dones

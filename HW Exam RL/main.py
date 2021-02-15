@@ -27,10 +27,10 @@ steps for the algorithm:
 import gym
 import sys
 import numpy as np
-from sacAgent import SoftActorCriticAgent
+# from sacAgent2ver import SoftActorCriticAgent
+# from sacAgent import  SoftActorCriticAgent
+from sacAgent3v import SoftActorCriticAgent
 import matplotlib.pyplot as plt
-
-
 
 
 def main_loop():
@@ -38,16 +38,16 @@ def main_loop():
   exe_info = {}
 
   # init configuation variables
-  n_episode = 80#300
-  max_steps = 300#200
-  max_start_step= 6000  # after this, start using the agent's policy
-  learnStartStep = 100 #500 # after this, start the learning update process
+  n_episode = 150 #10#50 100
+  max_steps = 400 #4000 #400 #200
+  max_start_step= 800 #5000  # after this, start using the agent's policy
+  learnStartStep = 400  #2500 #1500 #500 # after this, start the learning update process
   stepInBatch = 32  # every how much steps doing the update of params
   batch_size = 32
   HER_StartEpisode = 1 # after this, start using HER whether enabled
-  HER_GoalsStep_n = 10 # after this number of steps, sample a goal
+  HER_GoalsStep_n = 50 # after this number of steps, sample a goal
   HER_enabled = True
-  render_on = True
+  render_on = False
   random_action = False
   # end configuation variables
 
@@ -85,7 +85,8 @@ def main_loop():
   # sets an initial state
   env.reset()
   # setting the agent
-  agent = SoftActorCriticAgent(env = env, input_dims = (6,), n_actions= num_action)
+  print("shape of the input {}".format(num_inputs))
+  agent = SoftActorCriticAgent(env = env, input_dims = (6,), n_actions= num_action)  #(13,0) or (6,0)
 
   # ***************************************************** evaluations initiliazation **********************************
   # score evaluation (can do the same for the number of steps: https://medium.com/@thechrisyoon/deriving-policy-gradients-and-implementing-reinforce-f887949bd63
@@ -96,6 +97,7 @@ def main_loop():
   avg_n_steps = []
   # **************************************************** end evaluations initiliazation ********************************
   start_step = 0
+  agent_started = False
   # start episodes
 
 
@@ -119,9 +121,13 @@ def main_loop():
         action = env.action_space.sample()     # Takes a random action from its action space
       else: # use the agent
         if start_step >= max_start_step:
+          if not(agent_started):
+            print("*********************************+ switched from stochastic actions to agent's choice *******************************")
+            agent_started = True
           action = agent.choose_action(reShape(state))
         else:
           action = env.action_space.sample()
+
       new_state, reward, done, info = env.step(action)
       if False:
         print("*************")
@@ -130,16 +136,14 @@ def main_loop():
         print("*************")
 
       # save in buffer
-      if True: #not random_action:
-        agent.save(reShape(state), action, reward, reShape(new_state), done)
-
-        if not((steps+1) + HER_GoalsStep_n > max_steps):
-          data = (state,action,reward,new_state)
-          stepTransitions.append(data)
-        if (steps+1)%HER_GoalsStep_n == 0 and steps !=0:
-          goals.append(new_state['achieved_goal'])
-       # print(steps)
-       # print(new_state['achieved_goal'])
+      agent.save(reShape(state), action, reward, reShape(new_state), done)
+      if not((steps+1) + HER_GoalsStep_n > max_steps):
+        data = (state,action,reward,new_state)
+        stepTransitions.append(data)
+      if (steps+1)%HER_GoalsStep_n == 0 and steps !=0:
+        goals.append(new_state['achieved_goal'])
+      # print(steps)
+      # print(new_state['achieved_goal'])
 
       # save data from the execution
       scores.append(reward)
@@ -152,7 +156,7 @@ def main_loop():
       # updates, learn the agent
       if start_step >= learnStartStep and start_step % stepInBatch == 0:
         for _ in range(stepInBatch):
-        # states, actions, rewards, nextStates, dones = agent.sample_buffer_replay(batch_size)
+
           data = agent.sample_buffer_replay(batch_size)
           #print("Updating the model...")
           agent.learn(data)  #states,actions,rewards,nextStates,dones)
@@ -169,18 +173,13 @@ def main_loop():
         # print data from the episode
         print("Episode: " +str(ep) + " | Total reward "+ str(np.round(np.sum(scores))) + " | average_reward: " +
               str(np.round(np.mean(score_pool[-10:]))) + " | Step number: " + str(steps+1))
-        """
-        if avg_score > best_score:
-          best_score= avg_score
-          print("best score: " + str(best_score)) """
+
         if np.sum(scores) > best_score:
           best_score= np.sum(scores)
           print("best score: " + str(best_score))
         # conclude the episode (useless in this case (?))
         break
-   # print(goals)
-   # print(state['achieved_goal'])
-   # print(len(goals))
+
 
     # ********** start HER ****************************
     if HER_enabled and ep>= HER_StartEpisode:
@@ -208,15 +207,6 @@ def main_loop():
         substitute_reward = env.compute_reward(transition[3]['achieved_goal'], goal, info)
         Done = (substitute_reward == 0.0)
 
-        if False:
-          print("***** start transition info HER ******")
-          print(transition[0])
-          print(goal)
-          print("***** end transition info HER ******")
-          print(Done)
-          print((reShapeHer(transition[0],goal), transition[1], substitute_reward, reShapeHer(transition[3],goal),Done))
-          print(substitute_reward)
-
         agent.save(reShapeHer(transition[0],goal), transition[1], substitute_reward, reShapeHer(transition[3],goal), True)
         # ****************** end HER *************************
 
@@ -228,6 +218,10 @@ def main_loop():
 
   exe_info['nstep_history'] = n_steps
   exe_info['avg10step'] = avg_n_steps
+  exe_info['lossPi'] = agent.lossPi
+  exe_info['lossQ'] = agent.lossQ
+
+#  agent.save_model(env)
 
   # ending the episodes i close the environment and return execution data
   env.close()
@@ -249,7 +243,6 @@ def plot_results(info):
   plt.xlabel('Episodes')
   plt.ylabel("Rewards")
   plt.show()
-  print(info)
 
   "plot step for average return"
   plt.plot(info["nstep_history"])
@@ -264,9 +257,22 @@ def plot_results(info):
   plt.ylabel("Average Rewards")
   plt.show()
 
+  "plot the loss Q"
+  plt.plot(info["lossPi"])
+  plt.xlabel('Steps')
+  plt.ylabel("loss Policy")
+  plt.show()
+
+  "plot the loss Pi"
+  plt.plot(info["lossQ"])
+  plt.xlabel('Steps')
+  plt.ylabel("loss Q")
+  plt.show()
+
   #idea for plots: 2 * n, with number of schemas, 1 with her and the other without
 
 
 if __name__ == "__main__":
   info = main_loop()
- # plot_results(info)
+  plot_results(info)
+

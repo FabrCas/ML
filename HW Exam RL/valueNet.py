@@ -6,7 +6,8 @@ import torch.optim as optim
 
 
 class ValueNetwork(nn.Module):
-    def __init__(self, beta, input_dims, fc1_dims=256, fc2_dims=256,
+    # number of action no needed here, cause this network evaluates only the state value
+    def __init__(self, input_dims, fc1_dims=256, fc2_dims=256,
             name='value', lr= 1e-3):
         super(ValueNetwork, self).__init__()
         self.input_dims = input_dims
