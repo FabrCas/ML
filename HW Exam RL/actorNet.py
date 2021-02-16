@@ -1,4 +1,3 @@
-import os
 import torch as T
 import torch.nn.functional as F
 import torch.nn as nn
@@ -6,9 +5,12 @@ import numpy as np
 import torch.optim as optim
 from torch.distributions.normal import Normal
 
+""" Policy network, that take a state and return the action sampled according to its probability """
 class ActorNetwork(nn.Module):
     def __init__(self, input_dims, max_action, fc1_dims=256,
             fc2_dims=256, n_actions = None, name='actor', lr= 1e-3):
+
+        # definition for the structure of the network
         super(ActorNetwork, self).__init__()
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
@@ -16,7 +18,6 @@ class ActorNetwork(nn.Module):
         self.n_actions = n_actions
         self.name = name
         self.max_action = max_action
-       # self.reparam_noise = 1e-6
         self.lr = lr
 
         # definition of the hidden layers
@@ -26,8 +27,10 @@ class ActorNetwork(nn.Module):
         self.mu = nn.Linear(self.fc2_dims, self.n_actions)
         self.sigma = nn.Linear(self.fc2_dims, self.n_actions)
 
+        # optimizer for the actor params
         self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
 
+    # forward step to compute the mean and the standard deviation
     def forward(self, state):
         out = self.fc1(state)
         out = F.relu(out)
@@ -40,6 +43,8 @@ class ActorNetwork(nn.Module):
         sigma = T.clamp(sigma, min= -20, max=2)  # clamp sigma into the the interval
         sigma = T.exp(sigma)
         return mu, sigma
+
+    # start function for the gradient
 
     def zerog(self):
         self.optimizer.zero_grad()
@@ -55,33 +60,15 @@ class ActorNetwork(nn.Module):
         for param in self.parameters():
             param.requires_grad =True
 
+    # end function for the gradient
+
+
+
+    # given a single state, sample a probability distribution and return an action
     def sample_normal(self, state):
 
         # evaluate sigma and mu with the network
         mu, sigma = self.forward(state)
-        # print("mu " + str(mu))
-        # print("sigma " + str(sigma))
-
-        # define the normal
-        probabilities = Normal(0, 1)
-
-        # take the probabilities in a non deterministic matter
-        actions = probabilities.sample()
-
-        # hyperbolic tangent to limit between 1 and -1, and normalization, multiplying with the action tensor
-        action = T.tanh(mu + (sigma * actions))
-        print(action)
-
-        return action
-
-
-    # sample a probability distribution
-    def sample_normal(self, state):
-
-        # evaluate sigma and mu with the network
-        mu, sigma = self.forward(state)
-        #print("mu " + str(mu))
-        #print("sigma " + str(sigma))
 
         # define the normal
         probabilities = Normal(mu, sigma)
@@ -89,18 +76,18 @@ class ActorNetwork(nn.Module):
         # take the probabilities in a non deterministic matter
         actions = probabilities.rsample()
 
-        # hyperbolic tangent to limit between 1 and -1, and normalization, multiplying with the action tensor
+        # hyperbolic tangent to limit between 1 and -1, and normalization, multiplying with the MAX action tensor
         action = T.tanh(actions) * T.tensor(self.max_action)
-        action = action *0.5
+
+        # reduce the effective of the action, (fewer action range)
+        # action = action *0.5
 
         return action
 
+    # given a batch of states, sample their probability distribution and return actions and entropies
     def sample_normal_batch(self, state):
-        #print(state.shape[0])
         # evaluate sigma and mu with the network
         mu, sigma = self.forward(state)
-        #print("mu " + str(mu))
-        #print("sigma " + str(sigma))
 
         # define the normal
         probabilities = Normal(mu, sigma)
@@ -114,27 +101,12 @@ class ActorNetwork(nn.Module):
         # compute the entropy
         log_probs = probabilities.log_prob(actions).sum(axis=-1)  # used the reshape the outoput from -1 to 1
         val = (2*(np.log(2) - actions - F.softplus(-2*actions)))
-
         try:
-            log_probs -= val.sum(axis=1) #T.log(1-action.pow(2)+self.reparam_noise)  #axis=1
+            log_probs -= val.sum(axis=1)
         except:
             log_probs -= val.sum(axis=-1)
 
         return action, log_probs
         
 
-
-    # def sample_normal(self, state, reparameterize=True):
-    #     mu, sigma = self.forward(state)
-    #     probabilities = Normal(mu, sigma)
-
-
-        # actions = probabilities.rsample()
-
-        # action = T.tanh(actions) * T.tensor(self.max_action)
-        # log_probs = probabilities.log_prob(actions)
-        # log_probs -= T.log(1 - action.pow(2) + self.reparam_noise)
-        # log_probs = log_probs.sum(1, keepdim=True)
-
-        # return action, log_probs
 

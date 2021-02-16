@@ -1,9 +1,11 @@
 import numpy as np
-import torch
 
-""" continuous environment so in this case number of actions is the number of components for that actions"""
+""" Buffer to store past agent's experience"""
+
+# continuous environment so in this case number of actions is the number of components for that actions
 class ReplayBuffer():
     def __init__(self, max_size_buffer, input_shape, n_actions):
+        # allocate the memory of the buffer
         self.size = max_size_buffer
         self.state_memory = np.zeros((self.size, *input_shape)) # initialization of the memory
         self.new_state_memory = np.zeros((self.size, *input_shape)) # to keep track of the states that result after our actions
@@ -23,6 +25,7 @@ class ReplayBuffer():
         self.terminal_memory[index] = done
 
         self.pointer += 1
+
     # random sampling function from the replay buffer e
     def sample_buffer(self, batch_size = 32):
         max_mem = min(self.pointer, self.size)
@@ -34,8 +37,5 @@ class ReplayBuffer():
         rewards = self.reward_memory[batch],
         dones = self.terminal_memory[batch])
 
-        # sac 3
         return batch_tmp
 
-        # sac 1
-       # return {k: torch.as_tensor(v, dtype=torch.float32) for k, v in batch_tmp.items()} # states, actions, rewards, states_, dones

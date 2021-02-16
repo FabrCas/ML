@@ -2,19 +2,16 @@ from criticNet import CriticNetwork
 from actorNet import ActorNetwork
 from valueNet import ValueNetwork
 from replayBuffer import ReplayBuffer
-import os
+import saver_loader as os_mem
 import torch as T
 import torch.nn as nn
-from copy import deepcopy
-import torch.nn.functional as F
-import itertools
-from torch.optim import Adam
-
+import  itertools
+from torch import optim
+""" Soft actor critic agent """
 class SoftActorCriticAgent():
     def __init__(self, alpha = 0.2, input_dims = None, env = None, gamma= 0.99, n_actions = None,
-                 max_size= 100000, tau = 0.005, layer_size = 256, layer2_size=256, batch_size= 32, reward_scale= 2, polyak=0.995, lr= 1e-3):
+                 max_size= 10000000, batch_size= 32, polyak=0.995, lr= 1e-3):
         self.gamma = gamma
-        self.tau = tau
         self.alpha = alpha  # Definition of the temperature parameter
         self.memory = ReplayBuffer(max_size, input_dims, n_actions)
         self.batch_size = batch_size
@@ -22,10 +19,14 @@ class SoftActorCriticAgent():
         self.polyak = polyak
         self.lossPi = []
         self.lossQ = []
+        self.lossV = []
         self.lr = lr
 
-        """ 2 critics, minimum od the evalution of this state for these 2 networks in the calculation of the loss function
-              by the critic part"""
+        """ Definition of the neural networks: 1 actor, 2 critics, 1 value and 1 target value"""
+        # 2 ways of acting for estimating the value function:
+        # 1) define and learn a specific neural network (the used one)
+        # 2) evaluate the value of a certain state V(st) from the expected values of the difference between
+        # the q function Q(st, at) minus the entropy log(at|st), with at in reference to a certain policy pi
 
         self.actor = ActorNetwork(input_dims, n_actions=n_actions,
                                   name='actor', max_action=env.action_space.high)
@@ -37,155 +38,152 @@ class SoftActorCriticAgent():
 
         self.target_value = ValueNetwork(input_dims, name="target_net")
 
-        # At this point i initialize the main V-network and the target V-network with the same parameters.
+        # Initialize the main V-network and the target V-network with the same parameters.
         for target_parameter, parameter in zip(self.target_value.parameters(), self.value.parameters()):
             target_parameter.data.copy_(parameter.data)
 
-        self.value_network_optimizer = Adam(self.value.parameters(), lr=self.lr)
-        self.q1_network_optimizer = Adam(self.critic_1.parameters(), lr=self.lr)
-        self.q2_network_optimizer = Adam(self.critic_2.parameters(), lr=self.lr)
-        self.policy_network_optimizer = Adam(self.actor.parameters(), lr=self.lr)
+        # for simplicity i take the parameters of the Q networks and store in a unique variable
+        CriticParameters = itertools.chain(self.critic_1.parameters(), self.critic_2.parameters())
+        # define the Adam optimizer for those parameters
+        self.optimizerCritic = optim.Adam(CriticParameters, lr=self.critic_1.lr)
 
-
-
+    # function to sample the action
     def choose_action(self, state):
-        # state = T.Tensor([state])
-        #with T.no_grad():
-        actions = self.actor.sample_normal(T.FloatTensor(state))#, dtype=T.float32))
-    #    actions = actions.unsqueeze(0)
-       # print(actions)
-        action= actions.detach().cpu().numpy()
-    #print(action)
-       # action= action.numpy()[0]
-       # print(action)
-        return  action # transform from tensor to array and return               #actions.cpu().detach().numpy()[0]
+        # sample action from the actor normal
+        actions = self.actor.sample_normal(T.FloatTensor(state))
+        # transform from tensor to array and return, detach to carry out of the gradient
+        action = actions.detach().cpu().numpy()
+        return action
 
-
+    # save in the experience Replay
     def save(self, state, action, reward, new_state, done):
         self.memory.store_transition(state, action, reward, new_state, done)
 
+    # sample data from the experience replay
     def sample_buffer_replay(self, batch_size):
         return self.memory.sample_buffer(batch_size)
 
+    # ***************************************** start loss functions ***************************************************
+    def evalute_lossQ(self, reward, new_state, done, q1_prediction, q2_prediction,):
+
+        target_value = self.target_value.forward(new_state)
+        # in the paper the target value is estimated without the network using this formula:
+        # (q_target - self.alpha * log_prob) = V(st), with q_target the min of 2 q target values
+        target_q_value = reward + self.gamma * (1 - done) * (target_value)
+
+        # we want gradient out of the target, which only effects the other part of the difference that we're going
+        # to compute, hence the gradient flows only in q1 and q2
+        target_q_value = target_q_value.detach()
+
+        # loss through the mean square error
+        q_loss1 = nn.MSELoss()(q1_prediction, target_q_value)
+        q_loss2 = nn.MSELoss()(q2_prediction, target_q_value)
+
+        # final value of the loss as the sum of the two q_loss
+        q_loss = q_loss1 + q_loss2
+
+        # store the value
+        self.lossQ.append(q_loss)
+
+        return  q_loss
+
+
+    def evaluate_lossV(self, state, actionPi, entropy, v_prediction):
+
+        # evaluate the Q values from the action given by Pi, and take the minimum
+        new_q_value_prediction = T.min(self.critic_1.forward(state, actionPi), self.critic_2.forward(state, actionPi))
+        new_q_value_prediction = new_q_value_prediction.squeeze()
+
+        # the target from the q prediction and the entropy by Pi
+        function_target_v = new_q_value_prediction - (entropy * self.alpha)
+        function_target_v = function_target_v.detach()
+
+        v_prediction = v_prediction.squeeze()
+
+        # Mean square error to estimate the loss
+        v_loss = nn.MSELoss()(v_prediction, function_target_v)
+
+        # store the value
+        self.lossV.append(v_loss)
+
+        # return also the q_prediction using Action Pi, used to evaluate the Pi loss
+        return v_loss, new_q_value_prediction
+
+    def evaluate_lossPi(self, entropy, new_q_value_prediction):
+
+        # Policy loss as the minimum q value by critics and the entropy (adjusted by the temperature parameter)
+        policy_loss = (entropy * self.alpha) - new_q_value_prediction
+        policy_loss = policy_loss.mean()
+
+        # store the value
+        self.lossPi.append(policy_loss)
+
+        return  policy_loss
+
+    # ***************************************** end loss functions ***************************************************
+
+    # function to learn and update the parameters of the networks
     def learn(self, data):
-        # take the data
+        # extract information from data
         state = T.FloatTensor(data["states"])
         action = T.FloatTensor(data["actions"])
         reward = T.FloatTensor(data["rewards"]).unsqueeze(1)
         new_state = T.FloatTensor(data["states_"])
         done = T.FloatTensor(data["dones"]).unsqueeze(1)
 
-        # I execute the forward for getting a prediction values.
+        # I execute the forward for getting a prediction values of Q1,Q2, and V
         q1_prediction = self.critic_1.forward(state,action)
         q2_prediction = self.critic_2.forward(state, action)
         v_predicion = self.value.forward(state)
 
 
         # take the action from the policy
-        actionPi, logP = self.actor.sample_normal_batch(state)
+        actionPi, entropy = self.actor.sample_normal_batch(state)
 
-        ###########################################################################################    Training Q   ####
+        # compute the loss for each network and apply the stochastic gradient descend
 
-        target_value= self.target_value.forward(new_state)
+        #******************************************************************************************    Training Q   ****
 
-        target_q_value =  reward  + self.gamma * (1 - done) * (target_value) #- self.alpha *logP)
-      # print(target_q_value)
-      # print(type(target_q_value))
-      # print(target_q_value.detach())
-      # print(type(target_q_value))
-        target_q_value = target_q_value.detach()
-       #print(q1_prediction.shape)
-       #print(target_q_value.shape)
-        q_loss1 = nn.MSELoss()(q1_prediction, target_q_value)
-        q_loss2 = nn.MSELoss()(q2_prediction, target_q_value)
+        q_loss = self.evalute_lossQ(reward, new_state, done, q1_prediction, q2_prediction)
+
+        self.optimizerCritic.zero_grad()
+        q_loss.backward()
+        self.optimizerCritic.step()
 
 
+        #*******************************************************************************************   Training V  *****
 
-        self.q1_network_optimizer.zero_grad()
-        q_loss1.backward()
-        self.q1_network_optimizer.step()
+        v_loss, new_q_value_prediction = self.evaluate_lossV(state, actionPi, entropy, v_predicion)
 
-        self.q2_network_optimizer.zero_grad()
-        q_loss2.backward()
-        self.q2_network_optimizer.step()
-
-       # print("q_loss1" + str(q_loss1))
-       # print("q_loss2" + str(q_loss2))
-
-        ############################################################################################    Training V  ####
-
-        new_q_value_prediction = T.min(self.critic_1.forward(state,actionPi), self.critic_2.forward(state,actionPi))
-        new_q_value_prediction = new_q_value_prediction.squeeze()
-        function_target_v = new_q_value_prediction - (logP * self.alpha)
-        function_target_v = function_target_v.detach()
-        v_predicion = v_predicion.squeeze()
-
-        v_loss = nn.MSELoss()(v_predicion, function_target_v)
-
-
-
-        self.value_network_optimizer.zero_grad()
+        self.value.zero_grad()
         v_loss.backward()
-        self.value_network_optimizer.step()
+        self.value.stepg()
 
-       # print("v_loss" + str(v_loss))
+        #******************************************************************************************   Training Pi  *****
 
+        policy_loss =self.evaluate_lossPi(entropy, new_q_value_prediction)
 
-        ###########################################################################################    Training Pi  ####
-
-        policy_loss = (logP * self.alpha)- new_q_value_prediction
-        policy_loss = policy_loss.mean()
-
-
-        self.policy_network_optimizer.zero_grad()
+        self.actor.zero_grad()
         policy_loss.backward()
-        self.policy_network_optimizer.step()
+        self.actor.stepg()
 
-      #  print("policy_loss" + str(policy_loss))
 
-        ##########################################################################################   Update target  ####
+        #******************************************************************************************   Update target  ***
+
+        # finally i update the target according to the polyak hyperparameter
 
         for target_parameter, parameter in zip(self.target_value.parameters(), self.value.parameters()):
             target_parameter.data.copy_(  # the underscore replace the results in data
-                target_parameter.data * (1.0 - self.tau) + parameter.data * self.tau
+                target_parameter.data * (self.polyak) + parameter.data * (1 -self.polyak)
             )
 
-    ######################################################################   save and load  ############################
-        # Save model parameters
-    def save_model(self, env_name):
-        if not os.path.exists('models/'):
-            os.makedirs('models/')
-        actor_path = "models/actor__{}".format(env_name)
-        critic1_path = "models/critic1__{}".format(env_name)
-        critic2_path = "models/critic2__{}".format(env_name)
-        value_path = "models/value__{}".format(env_name)
-        target_value_path = "models/target_value__{}".format(env_name)
-        print('Saving models to: \n - {}\n - {}\n - {}\n - {}\n - {}'.format(actor_path,
-                                                                             critic1_path,
-                                                                             critic2_path,
-                                                                             value_path,
-                                                                             target_value_path))
-        T.save(self.actor.state_dict(), actor_path)
-        T.save(self.critic_1.state_dict(), critic1_path)
-        T.save(self.critic_2.state_dict(), critic2_path)
-        T.save(self.value.state_dict(), value_path)
-        T.save(self.target_value.state_dict(), target_value_path)
+    #*******************************************  |save & load| ********************************************************
 
-    # Load model parameters
-    def load_model(self, actor_path, critic1_path, critic2_path, value_path,
-                   target_value_path):
-        print('Loading models from : \n - {}\n - {}\n - {}\n - {}\n - {}'.format(actor_path,
-                                                                                 critic1_path,
-                                                                                 critic2_path,
-                                                                                 value_path,
-                                                                                 target_value_path))
-        if actor_path is not None:
-            self.actor.load_state_dict(T.load(actor_path))
-        if critic1_path is not None:
-            self.critic_1.load_state_dict(T.load(critic1_path))
-        if critic2_path is not None:
-            self.critic_2.load_state_dict(T.load(critic2_path))
-        if value_path is not None:
-            self.value.load_state_dict(T.load(value_path))
-        if target_value_path is not None:
-            self.target_value.load_state_dict(T.load(target_value_path))
+    def saveModel(self, name):
+        os_mem.save_model(name, self.actor, self.critic_1, self.critic_2, self.value, self.target_value)
+
+    def loadModel(self, paths):
+        os_mem.load_model(paths)
+
+
+
